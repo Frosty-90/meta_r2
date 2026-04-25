@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-privacy_game"
+version = "0.1.0"
+description = "Contextual-Integrity Disclosure Game — multi-agent OpenEnv environment for training LLMs in adversarial-inference-aware information control"
+requires-python = ">=3.10"
+dependencies = [
+    # OpenEnv runtime (FastAPI server + HTTP client)
+    "openenv-core[core]>=0.2.2",
+    # No additional ML deps in v1 — adversary uses pure regex + rule-based
+    # inference (Sweeney triangulation, drug→diagnosis, employer→attribute,
+    # over-share scan). Determinism is a feature: faster CPU-only rollouts,
+    # no NER hallucination, fully auditable reward.
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+]
+# Stretch: the original spec mentioned NER ensemble (Presidio + Piiranha + GLiNER)
+# as v2. Install with: pip install ".[ner]". Not used by default.
+ner = [
+    "presidio-analyzer>=2.2.0",
+    "transformers>=4.45.0",
+    "gliner>=0.2.0",
+]
+
+[project.scripts]
+server = "privacy_game.server.app:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["privacy_game", "privacy_game.server"]
+package-dir = { "privacy_game" = ".", "privacy_game.server" = "server" }

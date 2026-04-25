@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contextual-Integrity Disclosure Game — Live Demo</title>
+<style>
+  :root {
+    --bg: #0b0d13;
+    --bg-panel: #131620;
+    --bg-card: #1b1f2d;
+    --border: #2a3040;
+    --text: #eaeef6;
+    --text-muted: #8a93a7;
+    --accent: #8ab4ff;
+    --accent-2: #b992ff;
+    --success: #5ec27e;
+    --leak: #ff6b6b;
+    --warn: #ffbe5a;
+    --radius: 10px;
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+    background: radial-gradient(1200px 600px at 20% -10%, rgba(138,180,255,.06), transparent 60%),
+                radial-gradient(1000px 500px at 90% 110%, rgba(185,146,255,.06), transparent 60%),
+                var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+  header h1 .emoji { font-size: 22px; margin-right: 6px; }
+  header .subtitle { color: var(--text-muted); font-size: 13px; }
+  main {
+    display: grid;
+    grid-template-columns: 320px 1fr 300px;
+    gap: 20px;
+    padding: 20px;
+    flex: 1;
+    min-height: 0;
+  }
+  @media (max-width: 980px) {
+    main { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .panel h2 {
+    margin: 0 0 14px 0;
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  /* Config panel */
+  .config label { display: block; color: var(--text-muted); font-size: 13px; margin-bottom: 4px; }
+  .config select, .config input[type="text"] {
+    width: 100%; background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 11px; font-size: 14px; font-family: inherit;
+    margin-bottom: 12px;
+  }
+  .config select:focus, .config input:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .mode-toggle {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px;
+  }
+  .mode-toggle button {
+    background: var(--bg-card); color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 10px; font-size: 13px; font-family: inherit;
+    cursor: pointer; transition: all .15s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .mode-toggle button:hover { color: var(--text); }
+  .mode-toggle button.active {
+    background: linear-gradient(135deg, rgba(138,180,255,.16), rgba(185,146,255,.12));
+    color: var(--text); border-color: rgba(138,180,255,.4);
+  }
+  .btn-primary {
+    width: 100%; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #0a0c14; border: none; border-radius: 6px;
+    padding: 11px; font-size: 14px; font-weight: 600; font-family: inherit;
+    cursor: pointer; transition: filter .15s;
+  }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+
+  .profile-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; margin-top: 16px;
+    font-size: 12px; line-height: 1.5;
+  }
+  .profile-card .row {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding: 3px 0; border-bottom: 1px solid rgba(42,48,64,.5);
+  }
+  .profile-card .row:last-child { border-bottom: none; }
+  .profile-card .row .key { color: var(--text-muted); }
+  .profile-card .row .val { color: var(--text); font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .profile-card .row.protected .val { color: var(--leak); }
+  .profile-card .row.required .val { color: var(--success); }
+
+  /* Chat panel */
+  .chat-panel { min-height: 0; }
+  .chat-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom: 12px; }
+  .chat-header h2 { margin:0; }
+  .chat-header .task-info { font-size: 12px; color: var(--accent); }
+  .task-description {
+    background: rgba(138,180,255,.05); border: 1px solid rgba(138,180,255,.15);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;
+    font-size: 13px; line-height: 1.5; color: var(--text-muted);
+  }
+  .task-description strong { color: var(--text); }
+
+  .chat-log {
+    flex: 1; overflow-y: auto; padding-right: 6px;
+    display: flex; flex-direction: column; gap: 10px;
+    scroll-behavior: smooth;
+  }
+  .chat-log::-webkit-scrollbar { width: 6px; }
+  .chat-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .bubble {
+    max-width: 78%; padding: 10px 14px; border-radius: 14px;
+    font-size: 14px; line-height: 1.5; word-wrap: break-word;
+    animation: slideIn .2s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .bubble.rp {
+    align-self: flex-start; background: var(--bg-card);
+    border-top-left-radius: 4px;
+  }
+  .bubble.you {
+    align-self: flex-end; background: linear-gradient(135deg, rgba(138,180,255,.22), rgba(185,146,255,.18));
+    border: 1px solid rgba(138,180,255,.35);
+    border-top-right-radius: 4px;
+  }
+  .bubble .speaker {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-muted); margin-bottom: 3px; display:flex; align-items:center; gap:6px;
+  }
+  .bubble .play-btn {
+    background: transparent; border: none; color: var(--accent);
+    cursor: pointer; font-size: 12px; padding: 0;
+  }
+
+  /* Input area */
+  .input-area {
+    display: flex; gap: 8px; margin-top: 14px;
+    padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  .input-area input[type="text"] {
+    flex: 1; background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 22px;
+    padding: 11px 16px; font-size: 14px; font-family: inherit;
+  }
+  .input-area input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  .input-area input[type="text"]:disabled { opacity: .4; }
+  .input-area .send-btn, .input-area .mic-btn {
+    background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
+    border-radius: 50%; width: 42px; height: 42px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s; flex-shrink: 0; font-size: 18px;
+  }
+  .input-area .send-btn:hover:not(:disabled), .input-area .mic-btn:hover:not(:disabled) {
+    color: var(--accent); border-color: var(--accent);
+  }
+  .input-area .mic-btn.recording {
+    background: var(--leak); color: #fff; border-color: var(--leak);
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,.7); }
+    50%      { box-shadow: 0 0 0 8px rgba(255,107,107,0); }
+  }
+
+  /* Right panel - live scores */
+  .status-panel { overflow-y: auto; }
+  .big-metric {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px; margin-bottom: 10px;
+  }
+  .big-metric .label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+  .big-metric .value { font-size: 26px; font-weight: 600; margin-top: 4px; }
+  .big-metric.reward .value.positive { color: var(--success); }
+  .big-metric.reward .value.negative { color: var(--leak); }
+
+  .field-list { margin-top: 14px; }
+  .field-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 10px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; margin-bottom: 5px; font-size: 12px;
+  }
+  .field-row .name { font-family: ui-monospace, Menlo, monospace; color: var(--text); }
+  .field-row .score { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
+  .field-row.collected { border-color: rgba(94,194,126,.4); }
+  .field-row.collected .score { color: var(--success); }
+  .field-row.leaked { border-color: rgba(255,107,107,.4); background: rgba(255,107,107,.06); }
+  .field-row.leaked .score { color: var(--leak); }
+  .field-row.safe { border-color: rgba(94,194,126,.3); background: rgba(94,194,126,.04); }
+  .field-row.safe .score { color: var(--success); }
+
+  .verdict-banner {
+    background: var(--bg-card); border: 2px solid var(--border); border-radius: 8px;
+    padding: 16px; margin-top: 16px; text-align: center;
+  }
+  .verdict-banner.approved { border-color: rgba(94,194,126,.6); }
+  .verdict-banner.denied { border-color: rgba(255,107,107,.6); }
+  .verdict-banner .emoji { font-size: 28px; margin-bottom: 6px; }
+  .verdict-banner .title {
+    font-size: 14px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+  }
+  .verdict-banner.approved .title { color: var(--success); }
+  .verdict-banner.denied .title { color: var(--leak); }
+  .verdict-banner .sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  .empty-state {
+    color: var(--text-muted); font-size: 13px; text-align: center;
+    padding: 40px 20px; line-height: 1.6;
+  }
+  .empty-state .arrow { display: block; font-size: 22px; margin: 12px 0; }
+
+  footer {
+    padding: 12px 28px; border-top: 1px solid var(--border);
+    color: var(--text-muted); font-size: 12px; text-align: center;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1><span class="emoji">🛡️</span> Contextual-Integrity Disclosure Game</h1>
+    <div class="subtitle">Live demo — interact with the env via text or voice. Trained at text-level, deploys to both.</div>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: configuration -->
+  <div class="panel config">
+    <h2>Configuration</h2>
+
+    <div class="mode-toggle">
+      <button id="mode-text" class="active" onclick="setMode('text')">💬 Text</button>
+      <button id="mode-voice" onclick="setMode('voice')">🎤 Voice</button>
+    </div>
+
+    <label>Task</label>
+    <select id="task-select">
+      <option value="">Random (any)</option>
+    </select>
+
+    <label>Reward mode</label>
+    <select id="reward-select">
+      <option value="additive">v1 — additive (util − recon − verbosity)</option>
+      <option value="pareto_it" selected>v2 — Pareto-mult + info-theoretic</option>
+    </select>
+
+    <button id="start-btn" class="btn-primary" onclick="startSession()">Start session</button>
+
+    <div id="profile-card" class="profile-card" style="display:none;"></div>
+  </div>
+
+  <!-- CENTER: chat -->
+  <div class="panel chat-panel">
+    <div class="chat-header">
+      <h2>Conversation</h2>
+      <div id="task-info" class="task-info"></div>
+    </div>
+    <div id="task-description" class="task-description" style="display:none;"></div>
+
+    <div id="chat-log" class="chat-log">
+      <div class="empty-state">
+        Pick a task on the left and hit <strong>Start session</strong>.<br>
+        <span class="arrow">←</span>
+        In text mode, type replies.<br>
+        In voice mode, click the mic 🎤 to record.<br>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <input type="text" id="msg-input" placeholder="Type your reply… (Enter to send)" disabled>
+      <button id="send-btn" class="send-btn" onclick="sendText()" disabled title="Send">➤</button>
+      <button id="mic-btn" class="mic-btn" onclick="toggleRecording()" disabled style="display:none;" title="Record">🎤</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: status / scores -->
+  <div class="panel status-panel">
+    <h2>Live scoring</h2>
+
+    <div class="big-metric reward">
+      <div class="label">Current reward</div>
+      <div class="value" id="reward-value">—</div>
+    </div>
+    <div class="big-metric">
+      <div class="label">Turn</div>
+      <div class="value" id="turn-value">—</div>
+    </div>
+
+    <div class="field-list" id="field-list"></div>
+    <div id="verdict"></div>
+  </div>
+</main>
+
+<footer>
+  Anchors: <a href="https://dataprivacylab.org/projects/identifiability/paper1.pdf">Sweeney 2000</a>
+  · <a href="https://arxiv.org/abs/2310.17884">ConfAIde 2023</a>
+  · <a href="https://arxiv.org/abs/2402.03300">GRPO</a>
+  · <a href="https://github.com/meta-pytorch/OpenEnv">OpenEnv</a>
+</footer>
+
+<script>
+// ─── Global state ────────────────────────────────────────────────────────────
+let mode = "text";
+let sessionId = null;
+let currentProfile = null;
+let terminated = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+
+// ─── UI helpers ──────────────────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.getElementById("mode-text").classList.toggle("active", m === "text");
+  document.getElementById("mode-voice").classList.toggle("active", m === "voice");
+  document.getElementById("msg-input").style.display = m === "text" ? "" : "none";
+  document.getElementById("send-btn").style.display = m === "text" ? "" : "none";
+  document.getElementById("mic-btn").style.display = m === "voice" ? "" : "none";
+  if (m === "text") {
+    document.getElementById("msg-input").placeholder = "Type your reply… (Enter to send)";
+  }
+}
+
+async function loadTasks() {
+  const res = await fetch("/api/tasks");
+  const j = await res.json();
+  const sel = document.getElementById("task-select");
+  for (const t of j.tasks) {
+    const opt = document.createElement("option");
+    opt.value = t.task_id;
+    opt.textContent = `${t.task_id}  (${t.phase})  —  ${t.description.slice(0, 50)}…`;
+    sel.appendChild(opt);
+  }
+}
+loadTasks();
+
+// ─── Session lifecycle ──────────────────────────────────────────────────────
+async function startSession() {
+  const task = document.getElementById("task-select").value || null;
+  const rewardMode = document.getElementById("reward-select").value;
+
+  const res = await fetch("/api/start", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({task_id: task, reward_mode: rewardMode}),
+  });
+  if (!res.ok) { alert("Failed to start session"); return; }
+  const j = await res.json();
+  sessionId = j.session_id;
+  terminated = false;
+  document.getElementById("chat-log").innerHTML = "";
+  document.getElementById("verdict").innerHTML = "";
+  applyObservation(j.observation);
+
+  document.getElementById("msg-input").disabled = false;
+  document.getElementById("send-btn").disabled = false;
+  document.getElementById("mic-btn").disabled = false;
+  document.getElementById("start-btn").textContent = "New session";
+  document.getElementById("msg-input").focus();
+}
+
+// ─── Render observation ──────────────────────────────────────────────────────
+function applyObservation(obs) {
+  currentProfile = obs.profile;
+
+  // Task info
+  document.getElementById("task-info").textContent = `${obs.task_id} · ${obs.phase}`;
+  const desc = document.getElementById("task-description");
+  desc.style.display = "block";
+  desc.innerHTML = `<strong>Task:</strong> ${obs.task_description}`;
+
+  // Profile card
+  renderProfile(obs.profile, obs.required_fields, obs.protected_fields);
+
+  // Chat: RP message is what's new (we append that)
+  if (obs.relying_party_message) {
+    appendBubble("rp", obs.relying_party_message);
+  }
+
+  // Live scoring
+  document.getElementById("turn-value").textContent = `${obs.turn_number}/${obs.max_turns}`;
+  const md = obs.metadata || {};
+
+  // Field list — required (hope collected) + protected (hope NOT recovered)
+  const fl = document.getElementById("field-list");
+  fl.innerHTML = "";
+  const collected = md.collected_fields || {};
+  for (const f of obs.required_fields) {
+    const row = document.createElement("div");
+    row.className = "field-row" + (collected[f] ? " collected" : "");
+    row.innerHTML = `<span class="name">${f}</span>
+                     <span class="score">${collected[f] ? "✓" : "…"}</span>`;
+    fl.appendChild(row);
+  }
+  const per = md.per_protected_score || {};
+  const recovered = md.per_protected_recovered || {};
+  for (const f of obs.protected_fields) {
+    const s = (per[f] ?? 0).toFixed(2);
+    const isLeaked = (per[f] ?? 0) > 0.5;
+    const row = document.createElement("div");
+    row.className = "field-row " + (obs.terminated ? (isLeaked ? "leaked" : "safe") : "");
+    const recoveredText = recovered[f] ? ` ← ${recovered[f]}` : "";
+    row.innerHTML = `<span class="name">${f}${recoveredText}</span>
+                     <span class="score">${s}</span>`;
+    fl.appendChild(row);
+  }
+
+  // Reward
+  if (obs.terminated) {
+    const r = obs.reward ?? 0;
+    const rv = document.getElementById("reward-value");
+    rv.textContent = r.toFixed(3);
+    rv.classList.toggle("positive", r >= 0);
+    rv.classList.toggle("negative", r < 0);
+
+    // Verdict banner
+    const v = document.getElementById("verdict");
+    const approved = obs.terminated_reason === "approved";
+    v.innerHTML = `
+      <div class="verdict-banner ${approved ? 'approved' : 'denied'}">
+        <div class="emoji">${approved ? '✅' : '❌'}</div>
+        <div class="title">${obs.terminated_reason}</div>
+        <div class="sub">utility ${md.utility_score} · reconstruction ${(md.reconstruction_score ?? 0).toFixed(3)} · verbosity ${(md.verbosity_penalty ?? 0).toFixed(4)}</div>
+        <div class="sub" style="margin-top:6px;opacity:.7;">reward_mode = ${md.reward_mode || "?"}</div>
+      </div>`;
+
+    terminated = true;
+    document.getElementById("msg-input").disabled = true;
+    document.getElementById("send-btn").disabled = true;
+    document.getElementById("mic-btn").disabled = true;
+  } else {
+    document.getElementById("reward-value").textContent = "—";
+    // Auto-play RP message in voice mode
+    if (mode === "voice" && obs.relying_party_message) {
+      playTTS(obs.relying_party_message, "caller");
+    }
+  }
+}
+
+function renderProfile(profile, required, protected_) {
+  const card = document.getElementById("profile-card");
+  card.style.display = "block";
+  const req = new Set(required || []);
+  const prot = new Set(protected_ || []);
+  // Show only interesting fields (skip IDs and huge lists)
+  const shown = ["full_name", "date_of_birth", "gender", "zip_code", "state",
+                 "email", "phone", "ssn", "employer", "salary", "years_at_employer",
+                 "medication", "prescriber_name", "diagnosis", "religion",
+                 "political_affiliation", "health_status", "street_address",
+                 "first_name", "last_name", "child_name", "password",
+                 "credit_card_number", "drink_choice", "favorite_color",
+                 "ticket_count", "party_size", "shipping_address", "start_date", "end_date"];
+  card.innerHTML = "<div style='font-weight:600;margin-bottom:6px;'>Your profile</div>" +
+    shown.filter(k => profile[k] !== undefined).map(k => {
+      const cls = prot.has(k) ? "protected" : (req.has(k) ? "required" : "");
+      return `<div class="row ${cls}"><span class="key">${k}</span><span class="val">${profile[k]}</span></div>`;
+    }).join("");
+}
+
+function appendBubble(speaker, text) {
+  const log = document.getElementById("chat-log");
+  // Remove empty state if still there
+  const empty = log.querySelector(".empty-state");
+  if (empty) empty.remove();
+
+  const b = document.createElement("div");
+  b.className = "bubble " + (speaker === "rp" ? "rp" : "you");
+  const label = speaker === "rp" ? "Relying party" : "You";
+  const playBtn = speaker === "rp"
+      ? `<button class="play-btn" onclick="playTTS(${JSON.stringify(text)}, 'caller')" title="Play">🔊</button>`
+      : "";
+  b.innerHTML = `<div class="speaker">${label}${playBtn ? " · " + playBtn : ""}</div>${escapeHtml(text)}`;
+  log.appendChild(b);
+  log.scrollTop = log.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ─── Text mode ───────────────────────────────────────────────────────────────
+async function sendText() {
+  const input = document.getElementById("msg-input");
+  const text = input.value.trim();
+  if (!text || !sessionId || terminated) return;
+
+  input.value = "";
+  appendBubble("you", text);
+
+  const res = await fetch(`/api/step/${sessionId}`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({message: text}),
+  });
+  if (!res.ok) { alert("Step failed"); return; }
+  const j = await res.json();
+  applyObservation(j.observation);
+}
+document.getElementById("msg-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendText();
+});
+
+// ─── Voice mode ──────────────────────────────────────────────────────────────
+async function toggleRecording() {
+  if (!sessionId || terminated) return;
+
+  if (!isRecording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+      mediaRecorder = new MediaRecorder(stream, {mimeType: "audio/webm;codecs=opus"});
+      recordedChunks = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+      mediaRecorder.onstop = () => sendVoice();
+      mediaRecorder.start();
+      isRecording = true;
+      document.getElementById("mic-btn").classList.add("recording");
+      document.getElementById("mic-btn").title = "Stop recording";
+    } catch (err) {
+      alert("Microphone access denied or unavailable.");
+    }
+  } else {
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+    isRecording = false;
+    document.getElementById("mic-btn").classList.remove("recording");
+    document.getElementById("mic-btn").title = "Record";
+  }
+}
+
+async function sendVoice() {
+  const blob = new Blob(recordedChunks, {type: "audio/webm"});
+  // Show placeholder bubble
+  const placeholder = document.createElement("div");
+  placeholder.className = "bubble you";
+  placeholder.innerHTML = `<div class="speaker">You</div><em>transcribing…</em>`;
+  document.getElementById("chat-log").appendChild(placeholder);
+
+  const fd = new FormData();
+  fd.append("audio", blob, "clip.webm");
+  const res = await fetch(`/api/step-voice/${sessionId}`, {method: "POST", body: fd});
+  if (!res.ok) {
+    placeholder.innerHTML = `<div class="speaker">You</div><em style="color:var(--leak)">voice step failed</em>`;
+    return;
+  }
+  const j = await res.json();
+  placeholder.innerHTML = `<div class="speaker">You</div>${escapeHtml(j.transcribed || "")}`;
+  applyObservation(j.observation);
+}
+
+async function playTTS(text, voice) {
+  try {
+    const res = await fetch(`/api/tts?voice=${voice}&text=${encodeURIComponent(text)}`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = new Audio(url);
+    a.play();
+    a.onended = () => URL.revokeObjectURL(url);
+  } catch (e) { /* ignore */ }
+}
+</script>
+</body>
+</html>
