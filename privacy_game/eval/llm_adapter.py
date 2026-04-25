@@ -201,6 +201,92 @@ def trained_model_policy(rp_question: str, profile: dict, history: list) -> str:
     return _sanitize(out)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Frontier-model policies — for the README's eval table.
+# Each call hits a remote API. Cost: ~$0.001/episode on cheap tiers (4o-mini,
+# Haiku 4.5). For n=50 episodes that's ~$0.05 per row of the table.
+
+_openai_client = None
+_anthropic_client = None
+
+
+def _split_system_user(prompt: str) -> tuple[str, str]:
+    """The locally-rendered prompt has the system block + user content
+    concatenated. Split it back so chat-completion APIs see the right shape."""
+    marker = "YOUR PROFILE:"
+    if marker in prompt:
+        head, _, tail = prompt.partition(marker)
+        return head.strip(), (marker + tail).strip()
+    return _SYSTEM, prompt
+
+
+def openai_policy(rp_question: str, profile: dict, history: list) -> str:
+    """OpenAI Chat Completions as the disclosure agent.
+
+    Configuration env vars:
+        OPENAI_API_KEY    required — get one at platform.openai.com
+        OPENAI_MODEL      default: gpt-4o-mini  (≈ $0.0001/episode at 200 tokens)
+    """
+    global _openai_client
+    if _openai_client is None:
+        try:
+            from openai import OpenAI  # type: ignore[import-not-found]
+        except ImportError as e:
+            raise RuntimeError(
+                "openai package required. Install: pip install openai"
+            ) from e
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY not set")
+        _openai_client = OpenAI()
+
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    prompt = _render_prompt(rp_question, profile, history)
+    system, user = _split_system_user(prompt)
+    resp = _openai_client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": system},
+                  {"role": "user", "content": user}],
+        max_tokens=int(os.environ.get("PRIVACY_GAME_LLM_MAX_TOKENS", "120")),
+        temperature=float(os.environ.get("PRIVACY_GAME_LLM_TEMPERATURE", "0.7")),
+    )
+    out = resp.choices[0].message.content or ""
+    return _sanitize(out)
+
+
+def anthropic_policy(rp_question: str, profile: dict, history: list) -> str:
+    """Anthropic Messages API as the disclosure agent.
+
+    Configuration env vars:
+        ANTHROPIC_API_KEY    required — get one at console.anthropic.com
+        ANTHROPIC_MODEL      default: claude-haiku-4-5-20251001
+    """
+    global _anthropic_client
+    if _anthropic_client is None:
+        try:
+            from anthropic import Anthropic  # type: ignore[import-not-found]
+        except ImportError as e:
+            raise RuntimeError(
+                "anthropic package required. Install: pip install anthropic"
+            ) from e
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise RuntimeError("ANTHROPIC_API_KEY not set")
+        _anthropic_client = Anthropic()
+
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    prompt = _render_prompt(rp_question, profile, history)
+    system, user = _split_system_user(prompt)
+    resp = _anthropic_client.messages.create(
+        model=model,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+        max_tokens=int(os.environ.get("PRIVACY_GAME_LLM_MAX_TOKENS", "120")),
+        temperature=float(os.environ.get("PRIVACY_GAME_LLM_TEMPERATURE", "0.7")),
+    )
+    # Anthropic returns a list of content blocks; concatenate the text ones
+    out = "".join(b.text for b in resp.content if hasattr(b, "text"))
+    return _sanitize(out)
+
+
 def _sanitize(text: str) -> str:
     """Trim chatty preamble + cap length. The extractor is tolerant but RP
     only reads the first ~200 chars so excess doesn't help."""
