@@ -1,2 +1,0 @@
-[console_scripts]
-server = privacy_game.server.app:main
