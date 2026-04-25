@@ -34,5 +34,15 @@ server = "privacy_game.server.app:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["privacy_game", "privacy_game.server"]
-package-dir = { "privacy_game" = ".", "privacy_game.server" = "server" }
+packages = [
+    "privacy_game",
+    "privacy_game.server",
+    "privacy_game.eval",
+    "privacy_game.voice",
+]
+
+[tool.setuptools.package-dir]
+"privacy_game" = "."
+"privacy_game.server" = "server"
+"privacy_game.eval" = "eval"
+"privacy_game.voice" = "voice"
