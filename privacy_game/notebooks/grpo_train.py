@@ -41,15 +41,21 @@ the comment in `_disclosure_reward()` for how to extend.
 
 # %% [markdown]
 # ## 1. Install dependencies
+#
+# IMPORTANT: do NOT pin or upgrade `torch` in Colab — it's pre-installed with
+# the matching CUDA driver, and `pip install torch>=...` can leave it in a
+# half-broken state where `torch.Tensor` is missing (caught the hard way during
+# the hackathon). Just install what's missing.
 
 # %%
-# !pip install -q --upgrade pip
-# !pip install -q "torch>=2.4.0,<2.7.0"
+# import torch
+# assert hasattr(torch, "Tensor"), "torch is broken — restart Colab runtime"
+# print(f"using preinstalled torch: {torch.__version__}  cuda={torch.cuda.is_available()}")
+#
 # !pip install -q "transformers>=4.45,<4.50"
 # !pip install -q "trl>=0.13,<0.14"
 # !pip install -q "peft>=0.13"
 # !pip install -q "accelerate>=1.0"
-# !pip install -q "bitsandbytes>=0.44"
 # !pip install -q "datasets>=2.14"
 # !pip install -q "openenv-core>=0.2.2"
 # !pip install -q matplotlib
