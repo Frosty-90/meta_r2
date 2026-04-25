@@ -1,3 +1,9 @@
 openenv-core[core]>=0.2.2
 fastapi>=0.115.0
 uvicorn>=0.24.0
+
+# Profile corpus (AI4Privacy bridge, streaming + cached)
+datasets>=2.14.0
+
+# Third-party PII grader (opt-in via PRIVACY_GAME_PRESIDIO=1)
+presidio-analyzer>=2.2.0

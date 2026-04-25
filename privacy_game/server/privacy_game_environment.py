@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import random
+import time
 from typing import Optional
 from uuid import uuid4
 
@@ -36,6 +37,7 @@ from .profiles import generate_profile_pool
 from .relying_party import RelyingParty
 from .rubrics import EpisodeCtx, RubricStack, default_rubric_stack
 from .tasks import EpisodeConfig, sample_episode
+from .trajectory_logger import get_default_logger
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -286,6 +288,35 @@ class PrivacyGameEnvironment(Environment):
         recon_scores = recon_details.get("per_field", {})
         recovered_values = recon_details.get("recovered", {})
         verbosity = stack_result.per_rubric.get("verbosity", {}).get("raw", 0.0) * 0.01
+
+        # Trajectory logging (no-op unless PRIVACY_GAME_LOG_TRAJECTORIES=1).
+        # Captured at terminal time so reviewers / ourselves can replay the
+        # full episode offline: profile, transcript, per-rubric breakdown,
+        # final reward. See trajectory_logger.py for the schema.
+        get_default_logger().log({
+            "episode_id": self._state.episode_id,
+            "timestamp": time.time(),
+            "task_id": self._episode.task.task_id,
+            "phase": self._episode.task.phase,
+            "reward_mode": self._reward_mode,
+            "reward": reward,
+            "utility_score": rp_result.utility_score,
+            "reconstruction_score": recon_total,
+            "verbosity_penalty": verbosity,
+            "terminated_reason": rp_result.terminated_reason,
+            "n_turns": self._state.step_count,
+            "max_turns": self._max_turns,
+            "total_agent_tokens": self._total_agent_tokens,
+            "profile": self._episode.profile,
+            "extras": self._episode.extras,
+            "history": list(self._history),
+            "required_fields": [f for f, _ in self._episode.task.required_with_tiers],
+            "protected_fields": list(self._episode.task.protected_fields),
+            "collected_fields": dict(self._rp.state.collected),
+            "per_protected_score": recon_scores,
+            "per_protected_recovered": recovered_values,
+            "rubric_breakdown": stack_result.per_rubric,
+        })
 
         return self._build_observation(
             relying_party_message=rp_result.rp_message,

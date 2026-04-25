@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Trajectory logs (one JSONL per process when PRIVACY_GAME_LOG_TRAJECTORIES=1)
+outputs/trajectories/
