@@ -1,15 +1,31 @@
-# Voice layer — TTS-ASR robustness (not a replacement for real audio)
+# Voice layer — TTS-ASR robustness with real-dataset-trained voices
 
-> **Honest framing first.** This module renders text-level episodes as audio using
-> a text-to-speech engine (macOS `say`) and re-transcribes them with Whisper. It is
-> a **TTS → ASR round-trip robustness probe**, not a test against real human voice.
-> A text→TTS→Whisper→adversary loop is inherently *circular* — we synthesize the
-> audio we then transcribe. Real deployment testing would require:
+> **TTS backends.** This module renders text-level episodes as audio and
+> re-transcribes them with Whisper. It is a **TTS → ASR round-trip
+> robustness probe**, not a test against real human voice. Two TTS
+> backends are available; pick via `PRIVACY_GAME_TTS`:
 >
-> 1. **Actual human recordings** (e.g. a matched-script set from Common Voice / LibriTTS /
->    VCTK) of the caller and agent utterances. We did not record any.
-> 2. **Real acoustic variation** — reverb, background noise, low bit-rate codecs, accents
->    outside the TTS voice distribution.
+> | Backend | Voice source | Real-dataset provenance | How to activate |
+> |---|---|---|---|
+> | **Piper** (preferred) | LibriTTS, VCTK, LJSpeech | ✅ each voice's training corpus + license published on the [HF model card](https://huggingface.co/rhasspy/piper-voices) | `pip install piper-tts && python -m privacy_game.voice.tts_setup` |
+> | macOS `say` (fallback) | Apple system voices | ❌ training corpus undocumented | always present on macOS 14+ |
+>
+> Piper voices are open-source ONNX neural TTS models trained on
+> **publicly-documented real human speech corpora**. Defaults:
+> `en_US-amy-medium` (caller) and `en_US-ryan-medium` (agent), both
+> LibriTTS-trained, MIT-licensed. Run `python -m privacy_game.voice.tts_setup --list`
+> to see the catalogue (LibriTTS / VCTK / LJSpeech / Common Voice voices).
+>
+> **Honest framing.** A text→TTS→Whisper→adversary loop is inherently
+> *circular* — we synthesize the audio we then transcribe. Even with
+> Piper's real-dataset-trained voices, this is still a TTS-ASR pipeline
+> probe, not a test on human recordings. Real deployment testing would
+> additionally require:
+>
+> 1. **Actual human recordings** of the caller/agent utterances (a matched-script
+>    set sampled from Common Voice / LibriTTS / VCTK). We did not record any.
+> 2. **Real acoustic variation** — reverb, background noise, low bit-rate codecs,
+>    accents outside the TTS voice distribution.
 > 3. **Voice-specific threat models** — voiceprint re-identification, paralinguistic
 >    inference (emotion, age, gender from acoustic features), adversarial audio.
 >

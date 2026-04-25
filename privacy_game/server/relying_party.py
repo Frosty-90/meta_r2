@@ -28,7 +28,6 @@ agent's disclosure into:
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -58,26 +57,12 @@ ALL_EMPLOYER_INDUSTRIES: set[str] = (
 
 
 def _normalize(text: str) -> str:
-    """Hardened RP-side normalization — mirror of adversary.normalize_text.
-
-    Closes: zero-width chars, variation selectors, tag characters, combining
-    diacritics, control chars, non-ASCII digit scripts (Arabic-Indic,
-    Devanagari, Bengali, NKo, etc.), mathematical alphanumerics, full-width.
+    """Hardened RP-side normalization. Delegates to `adversary.normalize_text`
+    so the extractor and the adversary stay aligned — divergence here was the
+    root cause of the homoglyph bypass found in red-team v2.
     """
-    text = unicodedata.normalize("NFKC", text)
-    chars = []
-    for c in text:
-        try:
-            d = unicodedata.digit(c)
-            chars.append(str(d))
-            continue
-        except (ValueError, TypeError):
-            pass
-        cat = unicodedata.category(c)
-        if cat in ("Cf", "Mn", "Me", "Cc") and c not in "\n\t":
-            continue
-        chars.append(c)
-    return "".join(chars).casefold()
+    from .adversary import normalize_text  # local import to avoid cycles
+    return normalize_text(text)
 
 
 # State / regional patterns for zip generalization

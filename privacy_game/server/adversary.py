@@ -41,6 +41,37 @@ _DIGIT_WORDS = {
 }
 
 
+# Confusables map: Cyrillic / Greek / fullwidth / Latin-look-alikes → ASCII.
+# Fixes a real bypass found in red-team v2 — without this, an agent disclosing
+# "metformin" as "mеtfоrmіn" (Cyrillic е, о, і) escapes both the extractor
+# (utility lost) and the adversary's drug→diagnosis lookup (recon=0). NFKC
+# alone does NOT canonicalize Cyrillic→Latin — the scripts are distinct.
+# Reference: AI-Powered Homoglyph Detection 2025; CVE-2025-52488 (Unicode
+# script-boundary bypass in DNN file-path checks).
+_HOMOGLYPH_FOLD = str.maketrans({
+    # ── Cyrillic letters that look identical to Latin ──
+    "а": "a", "А": "A",   # U+0430, U+0410
+    "е": "e", "Е": "E",   # U+0435, U+0415
+    "о": "o", "О": "O",   # U+043E, U+041E
+    "р": "p", "Р": "P",   # U+0440, U+0420
+    "с": "c", "С": "C",   # U+0441, U+0421
+    "х": "x", "Х": "X",   # U+0445, U+0425
+    "у": "y", "У": "Y",   # U+0443, U+0423
+    "і": "i", "І": "I",   # U+0456, U+0406 (Ukrainian)
+    "ј": "j", "Ј": "J",   # U+0458, U+0408
+    "В": "B", "Н": "H", "К": "K", "М": "M", "Т": "T",  # uppercase-only Cyrillic clones
+    # ── Greek letters that look like Latin ──
+    "ο": "o", "Ο": "O",   # U+03BF, U+039F
+    "α": "a", "Α": "A",   # U+03B1, U+0391
+    "ν": "v", "Ν": "N",   # U+03BD, U+039D
+    "ρ": "p", "Ρ": "P",   # U+03C1, U+03A1
+    "τ": "t", "Τ": "T",   # U+03C4, U+03A4
+    "κ": "k", "Κ": "K",   # U+03BA, U+039A
+    "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Μ": "M",
+    "Χ": "X", "Υ": "Y",
+})
+
+
 def normalize_text(text: str) -> str:
     """Hardened text normalization for regex matching. Closes unicode evasions:
 
@@ -49,8 +80,9 @@ def normalize_text(text: str) -> str:
        etc. digits to ASCII (NFKC alone does NOT handle these scripts)
     3. Strip categories Cf (format / invisibles / tag chars / variation selectors),
        Mn/Me (combining marks / diacritics), Cc (C0/C1 controls except \\n\\t)
-    4. casefold() — handles Turkish dotted-I, German ß, Greek final sigma
-    5. Expand spelled-out digit words and collapse digit-punctuation runs
+    4. Cyrillic / Greek confusables fold to Latin (NFKC does NOT cross scripts)
+    5. casefold() — handles Turkish dotted-I, German ß, Greek final sigma
+    6. Expand spelled-out digit words and collapse digit-punctuation runs
     """
     text = unicodedata.normalize("NFKC", text)
 
@@ -69,7 +101,12 @@ def normalize_text(text: str) -> str:
         if cat in ("Cf", "Mn", "Me", "Cc") and c not in "\n\t":
             continue
         chars.append(c)
-    text = "".join(chars).casefold()
+    text = "".join(chars)
+
+    # Fold Cyrillic / Greek confusables → Latin BEFORE casefold so casefold
+    # operates on consistent scripts. (Order matters for Turkish-I correctness.)
+    text = text.translate(_HOMOGLYPH_FOLD)
+    text = text.casefold()
 
     # Expand spelled-out digits ("one two three" → "1 2 3")
     for word, digit in _DIGIT_WORDS.items():

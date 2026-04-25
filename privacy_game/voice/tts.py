@@ -1,16 +1,26 @@
-"""Text-to-speech wrapper using macOS `say`.
+"""Text-to-speech dispatcher: Piper (real-dataset-trained) → macOS `say` fallback.
 
-Why macOS `say`:
-    - Zero external dependencies (system command)
-    - High-quality neural voices on M3 (Samantha, Alex, Karen, Daniel, etc.)
-    - Distinct voices for caller vs agent gives the demo a proper phone-call feel
-    - Fast enough for real-time demo capture
+Backend selection
+─────────────────
+Driven by env var `PRIVACY_GAME_TTS`:
+    "piper"  → require Piper; raise if unavailable
+    "say"    → require macOS `say`; raise on non-macOS
+    "auto"   → use Piper when available (recommended), else fall back to `say`
 
-For cross-platform or higher fidelity, swap in Piper / Kokoro / Coqui-TTS.
+Default is "auto", which gives the demo zero-dep behavior on Mac while letting
+researchers swap in real-dataset-trained voices with one env var + one setup
+command. See tts_piper.py for the rationale and tts_setup.py for model
+download.
+
+The wire-level voice abstraction is unchanged: `CALLER_VOICE` and `AGENT_VOICE`
+are the public names every caller in the codebase already imports. When Piper
+is active, those abstractions map to LibriTTS-trained Piper voices instead of
+opaque Apple system voices.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -42,21 +52,56 @@ def _ensure_say_available() -> None:
         )
 
 
+def _resolve_backend() -> str:
+    """Return 'piper' or 'say' based on PRIVACY_GAME_TTS + actual availability."""
+    requested = os.environ.get("PRIVACY_GAME_TTS", "auto").lower()
+    if requested == "say":
+        return "say"
+    # piper or auto: probe Piper
+    try:
+        from .tts_piper import is_piper_available  # local import to avoid hard dep
+        piper_ready = is_piper_available()
+    except Exception:
+        piper_ready = False
+    if requested == "piper":
+        if not piper_ready:
+            raise RuntimeError(
+                "PRIVACY_GAME_TTS=piper but Piper is not installed or voice models are missing.\n"
+                "  pip install piper-tts\n"
+                "  python -m privacy_game.voice.tts_setup"
+            )
+        return "piper"
+    # auto
+    return "piper" if piper_ready else "say"
+
+
+def _say_role(voice: Voice) -> str:
+    """Map a Voice (which carries a macOS `say` voice name) to our caller/agent role
+    so we can re-resolve to the right Piper voice."""
+    return "caller" if voice.name == CALLER_VOICE.name else "agent"
+
+
 def synthesize_to_file(
     text: str,
     out_path: str | Path,
     voice: Voice = AGENT_VOICE,
 ) -> Path:
-    """Render `text` as audio and save to `out_path` (AIFF or WAV based on suffix).
+    """Render `text` as audio and save to `out_path`. Dispatches Piper → say.
 
-    Returns the output path. Raises CalledProcessError on failure.
+    Returns the output path. Raises on backend failure.
     """
-    _ensure_say_available()
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    backend = _resolve_backend()
 
-    # macOS `say` accepts -o <file> and infers format from suffix.
-    # --data-format=LEF32@22050 yields 22.05kHz float32 WAV (good for Whisper + portable).
+    if backend == "piper":
+        # Piper writes WAV directly. If the caller asked for a non-.wav suffix,
+        # we still produce a .wav (Piper-native) and let the caller convert.
+        from .tts_piper import synthesize_to_file as piper_synth, voice_id_for
+        return piper_synth(text, out_path, voice_id_for(_say_role(voice)))
+
+    # Fallback: macOS `say`
+    _ensure_say_available()
     cmd = [
         "say",
         "-v", voice.name,
@@ -65,12 +110,7 @@ def synthesize_to_file(
     ]
     if out_path.suffix.lower() == ".wav":
         cmd += ["--data-format=LEI16@16000"]  # 16kHz signed-int-16 — Whisper's native rate
-
-    subprocess.run(
-        cmd + [text],
-        check=True,
-        capture_output=True,
-    )
+    subprocess.run(cmd + [text], check=True, capture_output=True)
     return out_path
 
 

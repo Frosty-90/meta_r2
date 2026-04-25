@@ -7,3 +7,8 @@ datasets>=2.14.0
 
 # Third-party PII grader (opt-in via PRIVACY_GAME_PRESIDIO=1)
 presidio-analyzer>=2.2.0
+
+# Voice — opt-in real-dataset-trained TTS (LibriTTS / VCTK / Common Voice).
+# Activate via PRIVACY_GAME_TTS=piper after `python -m privacy_game.voice.tts_setup`.
+# Falls back to macOS `say` when not installed.
+piper-tts>=1.2.0

@@ -35,6 +35,9 @@ from .asr import default_asr
 from .tts import AGENT_VOICE, CALLER_VOICE, synthesize_to_file
 
 
+_VALID_REWARD_MODES = {"additive", "pareto_it"}
+
+
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_DIR.mkdir(exist_ok=True)
 
@@ -87,18 +90,43 @@ def _serialize_obs(obs) -> dict:
     }
 
 
+_MAX_AUDIO_BYTES = 25 * 1024 * 1024   # 25 MB cap on uploaded audio (≈ 30 min @ 96kbps)
+
+
+class AudioDecodeError(Exception):
+    """Raised when ffmpeg can't decode the uploaded audio (corrupt / non-audio)."""
+
+
 def _webm_to_wav16k(webm_bytes: bytes) -> Path:
-    """Convert browser-recorded audio (typically webm/opus) to 16kHz mono WAV."""
+    """Convert browser-recorded audio (typically webm/opus) to 16kHz mono WAV.
+
+    Raises:
+        AudioDecodeError: if ffmpeg fails to decode (corrupt / non-audio bytes).
+                          Caller should map this to HTTP 400.
+    """
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f_in:
         f_in.write(webm_bytes)
         in_path = Path(f_in.name)
     out_path = in_path.with_suffix(".wav")
-    subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(in_path),
-         "-ar", "16000", "-ac", "1", str(out_path)],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(in_path),
+             "-ar", "16000", "-ac", "1", str(out_path)],
+            check=True,
+            capture_output=True,
+            timeout=30,  # cap wall-clock so a malformed input can't hang the server
+        )
+    except subprocess.TimeoutExpired as e:
+        in_path.unlink(missing_ok=True)
+        out_path.unlink(missing_ok=True)
+        raise AudioDecodeError("audio decode timed out (>30s)") from e
+    except subprocess.CalledProcessError as e:
+        # ffmpeg exited non-zero — corrupt or non-audio input. Surface as 400, not 500.
+        in_path.unlink(missing_ok=True)
+        out_path.unlink(missing_ok=True)
+        stderr = (e.stderr or b"").decode(errors="replace")[:200]
+        raise AudioDecodeError(f"audio decode failed: {stderr}") from e
     in_path.unlink(missing_ok=True)
     return out_path
 
@@ -123,6 +151,18 @@ def list_tasks() -> dict:
 
 @app.post("/api/start", response_model=StartResponse)
 def start(req: StartRequest) -> StartResponse:
+    # Validate inputs at the API boundary so bad client requests get 4xx, not 5xx.
+    if req.reward_mode not in _VALID_REWARD_MODES:
+        raise HTTPException(
+            400,
+            f"reward_mode must be one of {sorted(_VALID_REWARD_MODES)}; got {req.reward_mode!r}",
+        )
+    if req.task_id is not None and req.task_id not in ALL_TASKS_BY_ID:
+        raise HTTPException(
+            400,
+            f"task_id {req.task_id!r} is not a known task. "
+            f"Known: {sorted(ALL_TASKS_BY_ID.keys())}",
+        )
     env = PrivacyGameEnvironment(
         reward_mode=req.reward_mode,
         force_task_id=req.task_id,
@@ -150,8 +190,15 @@ async def step_voice(sid: str, audio: UploadFile = File(...)) -> StepResponse:
     blob = await audio.read()
     if not blob:
         raise HTTPException(400, "empty audio upload")
+    if len(blob) > _MAX_AUDIO_BYTES:
+        raise HTTPException(413, f"audio upload exceeds {_MAX_AUDIO_BYTES // (1024*1024)} MB cap")
 
-    wav = _webm_to_wav16k(blob)
+    try:
+        wav = _webm_to_wav16k(blob)
+    except AudioDecodeError as e:
+        # Corrupt / non-audio upload — client error, not server failure.
+        raise HTTPException(400, str(e))
+
     try:
         text = default_asr().transcribe(wav).text.strip()
     finally:
